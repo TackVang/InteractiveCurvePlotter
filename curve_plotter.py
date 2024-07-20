@@ -28,7 +28,10 @@ class InteractivePlot:
         self.selected_points = []
         self.new_points = pd.DataFrame(columns=['x', 'y'])
         self.fit_curve_line = None
-
+        self.edit_mode = False
+        self.rect = None
+        self.start_x = None
+        self.start_y = None
         # メインフレームの作成
         main_frame = tk.Frame(root)
         main_frame.pack(fill=tk.BOTH, expand=True)
@@ -55,6 +58,9 @@ class InteractivePlot:
 
         self.canvas.mpl_connect("pick_event", self.on_pick)
         self.canvas.mpl_connect("button_press_event", self.on_canvas_click)
+        self.canvas.mpl_connect("button_press_event", self.on_press)
+        self.canvas.mpl_connect("button_release_event", self.on_release)
+        self.canvas.mpl_connect("motion_notify_event", self.on_motion)
 
         self.update_plot()
 
@@ -115,6 +121,52 @@ class InteractivePlot:
         elif self.edit_mode:
             ind = event.ind[0]
             self.edit_point(ind)
+
+    def on_press(self, event):
+        if (self.select_mode or self.delete_mode) and event.inaxes == self.ax:
+            self.start_x = event.xdata
+            self.start_y = event.ydata
+            if self.rect is None:
+                self.rect = plt.Rectangle((self.start_x, self.start_y), 0, 0, fill=False, color='black', linestyle='dashed')
+                self.ax.add_patch(self.rect)
+
+    def on_motion(self, event):
+        if (self.select_mode or self.delete_mode) and self.rect is not None and event.inaxes == self.ax:
+            cur_x, cur_y = event.xdata, event.ydata
+            width = cur_x - self.start_x
+            height = cur_y - self.start_y
+            self.rect.set_width(width)
+            self.rect.set_height(height)
+            self.rect.set_xy((self.start_x, self.start_y))
+            self.canvas.draw()
+
+    def on_release(self, event):
+        if self.select_mode and self.rect is not None:
+            selected_points = []
+            for i, (x, y) in enumerate(zip(self.df['x'], self.df['y'])):
+                if (self.start_x <= x <= event.xdata or self.start_x >= x >= event.xdata) and \
+                (self.start_y <= y <= event.ydata or self.start_y >= y >= event.ydata):
+                    selected_points.append(i)
+            self.selected_points = selected_points
+            self.rect.remove()
+            self.rect = None
+            self.update_plot()
+
+        elif self.delete_mode and self.rect is not None:
+            selected_points = []
+            for i, (x, y) in enumerate(zip(self.df['x'], self.df['y'])):
+                if (self.start_x <= x <= event.xdata or self.start_x >= x >= event.xdata) and \
+                (self.start_y <= y <= event.ydata or self.start_y >= y >= event.ydata):
+                    selected_points.append(i)
+
+            if len(selected_points) > 0:
+                selected_points.reverse()
+                for ind in selected_points:
+                    self.df = self.df.drop(ind).reset_index(drop=True)
+
+            self.rect.remove()
+            self.rect = None
+            self.update_plot()
 
     def update_plot(self):
         self.ax.clear()

@@ -28,6 +28,7 @@ class InteractivePlot:
         self.selected_points = []
         self.new_points = pd.DataFrame(columns=['x', 'y'])
         self.fit_curve_line = None
+        self.extrapolate_curve_line = None
         self.edit_mode = False
         self.rect = None
         self.start_x = None
@@ -109,8 +110,10 @@ class InteractivePlot:
             ind = event.ind[0]
             if ind in self.selected_points:
                 self.selected_points.remove(ind)
+
             else:
                 self.selected_points.append(ind)
+
             self.update_plot()
 
         elif self.delete_mode:
@@ -147,7 +150,11 @@ class InteractivePlot:
                 if (self.start_x <= x <= event.xdata or self.start_x >= x >= event.xdata) and \
                 (self.start_y <= y <= event.ydata or self.start_y >= y >= event.ydata):
                     selected_points.append(i)
-            self.selected_points = selected_points
+
+            set_select_points_db = set(self.selected_points)
+            set_new_select_points = set(selected_points)
+            self.selected_points = list(set_select_points_db.union(set_new_select_points))
+
             self.rect.remove()
             self.rect = None
             self.update_plot()
@@ -180,6 +187,10 @@ class InteractivePlot:
         if self.fit_curve_line is not None:
             self.ax.plot(
                 self.fit_curve_line[0], self.fit_curve_line[1], color='purple')
+
+        if self.extrapolate_curve_line is not None:
+            self.ax.plot(
+                self.extrapolate_curve_line[0], self.extrapolate_curve_line[1], color='green')
 
         if not self.new_points.empty:
             min_x = min(min(self.df["x"]), min(self.new_points["x"]))
@@ -215,6 +226,10 @@ class InteractivePlot:
             self.button_frame, text="FitCurve", command=self.perform_fit)
         self.fit_curve_button.pack(side=tk.LEFT)
 
+        self.extrapolate_button = tk.Button(
+            self.button_frame, text="Extrapolate", command=self.extrapolate_points)
+        self.extrapolate_button.pack(side=tk.LEFT)
+
         self.store_plots_button = tk.Button(
             self.button_frame, text="StorePlots", command=self.store_new_points)
         self.store_plots_button.pack(side=tk.LEFT)
@@ -232,17 +247,17 @@ class InteractivePlot:
             x = selected_df['x']
             y = selected_df['y']
             popt, _ = curve_fit(quadratic_function, x, y)
-            a, b, c = popt
+            self.a, self.b, self.c = popt
 
             # optimize curve using selected points
             x_fit = np.linspace(min(x), max(x), 100)
-            y_fit = quadratic_function(x_fit, a, b, c)
+            y_fit = quadratic_function(x_fit, self.a, self.b, self.c)
             self.fit_curve_line = (x_fit, y_fit)
 
             # calculate mid-points
             x_midpoints = np.array(
                 [(x.iloc[i] + x.iloc[i + 1]) / 2 for i in range(len(x) - 1)])
-            y_midpoints = quadratic_function(x_midpoints, a, b, c)
+            y_midpoints = quadratic_function(x_midpoints, self.a, self.b, self.c)
 
             new_points_df = pd.DataFrame({'x': x_midpoints, 'y': y_midpoints})
 
@@ -252,21 +267,49 @@ class InteractivePlot:
             # Plase select more than 3 points
             pass
 
+    def extrapolate_points_in_range(self, x_range, extrapolate_by):
+        num_exterpolate_points = (x_range[1] - x_range[0]) // extrapolate_by
+
+        x_new  = np.concatenate([np.linspace(x_range[0], x_range[0] + extrapolate_by * int(num_exterpolate_points), int(num_exterpolate_points)+1), np.array([x_range[1]])])
+        y_new = quadratic_function(x_new, self.a, self.b, self.c)
+
+        self.extrapolate_curve_line = (x_new, y_new)
+
+        return pd.DataFrame({'x': x_new, 'y': y_new})
+
+    def extrapolate_points(self):
+        # temp
+        extrapolate_from = simpledialog.askfloat("extrapolate_from", f"\nEnter extrapolate from:", parent=self.root)
+        extrapolate_until  = simpledialog.askfloat("extrapolate_until", f"\nEnter extrapolate_until:", parent=self.root)
+        extrapolate_by = simpledialog.askfloat("extrapolate_by", f"\nEnter extrapolate_by:", parent=self.root)
+
+        exterpolated_df = self.extrapolate_points_in_range([extrapolate_from, extrapolate_until], extrapolate_by)
+
+        self.new_points = exterpolated_df
+        self.update_plot()
+
+
     def store_new_points(self):
         if not self.new_points.empty:
             self.df = pd.concat([self.df, self.new_points], ignore_index=True)
             self.new_points = pd.DataFrame(columns=['x', 'y'])
             self.fit_curve_line = None
+            self.extrapolate_curve_line = None
+
             self.select_mode = False
             self.selected_points = []
+
             self.update_plot()
             self.create_initial_buttons()
 
     def exit_without_save(self):
         self.new_points = pd.DataFrame(columns=['x', 'y'])
         self.fit_curve_line = None
+        self.extrapolate_curve_line = None
+
         self.select_mode = False
         self.selected_points = []
+
         self.update_plot()
 
         self.create_initial_buttons()
